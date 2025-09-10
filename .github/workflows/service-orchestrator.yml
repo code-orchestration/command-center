@@ -1,76 +1,136 @@
-name: Service Orchestrator
+name: Service Orchestrator with Claude Code
 
 on:
   issues:
     types: [opened, labeled]
 
 jobs:
-  check-and-create-service:
+  architect-service:
     if: contains(github.event.issue.labels.*.name, 'service-type')
     runs-on: ubuntu-latest
     
     steps:
-      - name: Checkout command-center
+      - name: Checkout repository
         uses: actions/checkout@v4
-        
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+
+      - name: Architect Analysis with Claude Code
+        uses: anthropics/claude-code-action@v1
         with:
-          node-version: '20'
-          
-      - name: Install dependencies
-        run: |
-          npm init -y
-          npm install @anthropic-ai/sdk @octokit/rest js-yaml
-          
-      - name: Parse Issue and Create Service Repository
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_ORG_TOKEN }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          ISSUE_NUMBER: ${{ github.event.issue.number }}
-          ISSUE_TITLE: ${{ github.event.issue.title }}
-          ISSUE_BODY: ${{ github.event.issue.body }}
-        run: |
-          node scripts/create-service.js
-          
-      - name: Comment on Issue
-        uses: actions/github-script@v7
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GH_PAT }}
+          model: claude-opus-4-1-20250805
+          prompt: |
+            You are a System Architect persona for SuperClaude automation pipeline.
+            
+            Analyze this service request and perform the following tasks:
+            
+            1. **Technology Stack Selection**
+               - Choose the most appropriate languages and frameworks
+               - Consider the requirements: ${{ github.event.issue.body }}
+               
+            2. **Repository Creation**
+               - Create necessary repositories under the code-orchestration organization
+               - Use naming convention: {service-name}-{component} (e.g., todo-app-frontend, todo-app-backend)
+               - Add appropriate descriptions
+               
+            3. **Issue Generation**
+               - Break down the work into specific, implementable issues
+               - Create issues in each repository with clear descriptions
+               - Add appropriate labels (P0/P1/P2, task/epic/bug, frontend/backend)
+               - Each issue should be actionable and testable
+               
+            4. **Workflow Setup**
+               - Copy the developer workflow template to each new repository
+               - Copy the QA reviewer workflow template to each new repository
+               
+            5. **Documentation**
+               - Create a service-plan.md with the architecture decisions
+               - Update this issue with links to created repositories and issues
+            
+            For the issue titled: "${{ github.event.issue.title }}"
+            With description: ${{ github.event.issue.body }}
+            
+            Use gh CLI commands to create repositories and issues.
+            Be practical and focus on MVP implementation.
+            
+            Start by creating the repositories, then create issues in each repository.
+
+  developer-automation:
+    if: |
+      github.event_name == 'issues' && 
+      github.event.action == 'opened' &&
+      !contains(github.event.issue.labels.*.name, 'service-type') &&
+      contains(github.repository, 'todo-app')
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Developer Implementation with Claude Code
+        uses: anthropics/claude-code-action@v1
         with:
-          github-token: ${{ secrets.GH_ORG_TOKEN }}
-          script: |
-            const fs = require('fs');
-            let result = { success: false, message: '서비스 생성 실패' };
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GH_PAT }}
+          model: claude-opus-4-1-20250805
+          prompt: |
+            You are a Senior Developer persona for SuperClaude automation pipeline.
             
-            try {
-              result = JSON.parse(fs.readFileSync('service-creation-result.json', 'utf8'));
-            } catch (e) {
-              console.error('결과 파일 읽기 실패:', e);
-            }
+            Implement the following issue completely:
+            Title: ${{ github.event.issue.title }}
+            Description: ${{ github.event.issue.body }}
             
-            if (result.success) {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                body: `✅ **서비스가 성공적으로 생성되었습니다!**\n\n` +
-                      `- 레포지토리: [${result.repoName}](${result.repoUrl})\n` +
-                      `- 상태: ${result.status}\n` +
-                      `- 생성된 이슈: ${result.issuesCreated}개\n\n` +
-                      `자동 개발이 곧 시작됩니다.`
-              });
-              
-              // 이슈 닫기
-              await github.rest.issues.update({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                state: 'closed'
-              });
-            } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                body: `❌ **서비스 생성 실패**\n\n${result.message}`
-              });
-            }
+            Tasks:
+            1. Create a feature branch
+            2. Implement the required functionality
+            3. Write comprehensive tests
+            4. Add documentation
+            5. Create a pull request
+            
+            Use best practices for the detected language and framework.
+            Ensure code is production-ready with proper error handling.
+            Include unit tests with at least 80% coverage.
+
+  qa-review:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout PR
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: QA Review with Claude Code
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GH_PAT }}
+          model: claude-opus-4-1-20250805
+          prompt: |
+            You are a Senior QA Engineer persona for SuperClaude automation pipeline.
+            
+            Review this pull request thoroughly:
+            
+            1. **Code Quality**
+               - Check for clean, maintainable code
+               - Verify SOLID principles
+               - Look for code duplication
+               
+            2. **Security**
+               - Check for vulnerabilities
+               - Verify input validation
+               - Look for hardcoded secrets
+               
+            3. **Testing**
+               - Verify test coverage
+               - Check test quality
+               - Ensure edge cases are covered
+               
+            4. **Performance**
+               - Look for bottlenecks
+               - Check algorithm efficiency
+               - Verify database queries
+               
+            Provide actionable feedback and approve/request changes based on findings.
+            If everything looks good, approve and merge the PR.
