@@ -1,0 +1,76 @@
+name: Service Orchestrator
+
+on:
+  issues:
+    types: [opened, labeled]
+
+jobs:
+  check-and-create-service:
+    if: contains(github.event.issue.labels.*.name, 'service-type')
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout command-center
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          
+      - name: Install dependencies
+        run: |
+          npm init -y
+          npm install @anthropic-ai/sdk @octokit/rest js-yaml
+          
+      - name: Parse Issue and Create Service Repository
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_ORG_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: |
+          node scripts/create-service.js
+          
+      - name: Comment on Issue
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GH_ORG_TOKEN }}
+          script: |
+            const fs = require('fs');
+            let result = { success: false, message: '서비스 생성 실패' };
+            
+            try {
+              result = JSON.parse(fs.readFileSync('service-creation-result.json', 'utf8'));
+            } catch (e) {
+              console.error('결과 파일 읽기 실패:', e);
+            }
+            
+            if (result.success) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: `✅ **서비스가 성공적으로 생성되었습니다!**\n\n` +
+                      `- 레포지토리: [${result.repoName}](${result.repoUrl})\n` +
+                      `- 상태: ${result.status}\n` +
+                      `- 생성된 이슈: ${result.issuesCreated}개\n\n` +
+                      `자동 개발이 곧 시작됩니다.`
+              });
+              
+              // 이슈 닫기
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                state: 'closed'
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: `❌ **서비스 생성 실패**\n\n${result.message}`
+              });
+            }

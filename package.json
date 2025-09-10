@@ -1,0 +1,22 @@
+{
+  "name": "command-center",
+  "version": "1.0.0",
+  "description": "자동화된 코드 생성 파이프라인 오케스트레이터",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "automation",
+    "code-generation",
+    "superclaude",
+    "orchestration"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.27.3",
+    "@octokit/rest": "^21.0.2",
+    "js-yaml": "^4.1.0"
+  }
+}
