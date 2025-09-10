@@ -1,0 +1,77 @@
+name: Service Creator Pipeline
+
+on:
+  issues:
+    types: [opened, labeled]
+
+jobs:
+  check-trigger:
+    if: contains(github.event.issue.labels.*.name, 'service-type')
+    runs-on: ubuntu-latest
+    outputs:
+      should-run: ${{ steps.check.outputs.should-run }}
+    steps:
+      - name: Check if should run
+        id: check
+        run: |
+          if [[ "${{ github.event.action }}" == "opened" ]] || [[ "${{ github.event.action }}" == "labeled" ]]; then
+            echo "should-run=true" >> $GITHUB_OUTPUT
+          else
+            echo "should-run=false" >> $GITHUB_OUTPUT
+          fi
+
+  architect-analysis:
+    needs: check-trigger
+    if: needs.check-trigger.outputs.should-run == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Claude CLI
+        run: |
+          npm install -g claude-cli
+          
+      - name: Configure Claude
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          claude configure --api-key "$ANTHROPIC_API_KEY" --model opus
+
+      - name: Run Architect Persona
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: |
+          chmod +x .github/scripts/architect.sh
+          .github/scripts/architect.sh
+
+      - name: Comment on Issue
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GH_PAT }}
+          script: |
+            const issueNumber = context.issue.number;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: '🚀 **Service Creation Pipeline Started**\n\nArchitect persona is analyzing your requirements...\n\nCheck the [Actions tab](../actions) for progress.'
+            });
+
+      - name: Upload Analysis Results
+        uses: actions/upload-artifact@v3
+        with:
+          name: architect-analysis
+          path: |
+            analysis-results.json
+            service-plan.md
+          retention-days: 30

@@ -1,116 +1,39 @@
-name: 서비스 생성 요청
-description: 새로운 서비스 생성을 요청합니다
+name: Service Creation Request
+description: Request automated service creation with SuperClaude
 title: "[Service] "
-labels: ["service-type"]
+labels: ["service-type", "automated"]
 body:
   - type: markdown
     attributes:
       value: |
-        ## 새로운 서비스 생성 요청
-        이 템플릿을 사용하여 새로운 서비스를 요청하세요.
-
-  - type: input
-    id: service-name
-    attributes:
-      label: 서비스 이름
-      description: 생성할 서비스의 이름 (영문, 하이픈 사용 가능)
-      placeholder: "예: user-management-service"
-    validations:
-      required: true
+        ## 🚀 SuperClaude Service Creation
+        
+        Describe your service in natural language. The Architect persona will analyze your requirements and automatically create repositories, issues, and infrastructure.
 
   - type: textarea
     id: description
     attributes:
-      label: 서비스 설명
-      description: 서비스의 목적과 주요 기능을 설명해주세요
-      placeholder: "이 서비스는..."
-    validations:
-      required: true
-
-  - type: dropdown
-    id: language
-    attributes:
-      label: 프로그래밍 언어
-      description: 서비스 개발에 사용할 언어
-      options:
-        - Node.js (TypeScript)
-        - Python
-        - Go
-        - Java
-    validations:
-      required: true
-
-  - type: dropdown
-    id: framework
-    attributes:
-      label: 프레임워크
-      description: 사용할 웹 프레임워크
-      options:
-        - Express (Node.js)
-        - NestJS (Node.js)
-        - FastAPI (Python)
-        - Django (Python)
-        - Gin (Go)
-        - Spring Boot (Java)
-    validations:
-      required: true
-
-  - type: dropdown
-    id: database
-    attributes:
-      label: 데이터베이스
-      description: 사용할 데이터베이스
-      options:
-        - PostgreSQL
-        - MongoDB
-        - MySQL
-        - Redis
-        - None
-    validations:
-      required: true
-
-  - type: textarea
-    id: features
-    attributes:
-      label: 주요 기능
-      description: 서비스가 제공해야 할 주요 기능들을 나열해주세요
+      label: Service Description
+      description: Describe what you want to build in natural language (be as detailed as you like)
       placeholder: |
-        - 사용자 인증 및 권한 관리
-        - RESTful API 제공
-        - 데이터 검증 및 처리
+        I need a Todo Management Web App with:
+        - User authentication (signup, login, logout)
+        - Create, read, update, delete todos
+        - Mark todos as complete/incomplete
+        - Set due dates and priorities
+        - Filter and search todos
+        - Categories or tags for organization
+        - Modern, responsive UI
+        - Real-time updates
+      value: |
+        I need a Todo Management Web App with:
+        - User authentication (signup, login, logout)
+        - Create, read, update, delete todos
+        - Mark todos as complete/incomplete
+        - Set due dates and priorities
+        - Filter and search todos
+        - Categories or tags for organization
+        - Modern, responsive UI
+        - Real-time updates
     validations:
       required: true
-
-  - type: textarea
-    id: api-endpoints
-    attributes:
-      label: API 엔드포인트
-      description: 필요한 API 엔드포인트를 정의해주세요 (선택사항)
-      placeholder: |
-        - POST /api/users - 사용자 생성
-        - GET /api/users/:id - 사용자 조회
-        - PUT /api/users/:id - 사용자 수정
-    validations:
-      required: false
-
-  - type: dropdown
-    id: deployment
-    attributes:
-      label: 배포 방식
-      description: 서비스 배포 방식
-      options:
-        - Docker Container
-        - Kubernetes
-        - AWS Lambda
-        - Vercel
-        - Heroku
-    validations:
-      required: true
-
-  - type: textarea
-    id: additional
-    attributes:
-      label: 추가 요구사항
-      description: 기타 추가적인 요구사항이 있다면 작성해주세요
-    validations:
-      required: false

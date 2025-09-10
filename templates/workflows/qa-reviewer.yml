@@ -1,0 +1,201 @@
+name: QA Review Pipeline
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to review'
+        required: true
+        type: number
+
+jobs:
+  automated-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Test Environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Detect Language and Run Tests
+        id: tests
+        run: |
+          # Detect project type and run appropriate tests
+          if [ -f "package.json" ]; then
+            echo "Running JavaScript tests..."
+            npm ci
+            npm test -- --coverage --watchAll=false
+            npm run lint || true
+            echo "test_status=success" >> $GITHUB_OUTPUT
+          elif [ -f "requirements.txt" ]; then
+            echo "Running Python tests..."
+            pip install -r requirements.txt
+            python -m pytest tests/ --cov=src --cov-report=term
+            python -m flake8 . || true
+            echo "test_status=success" >> $GITHUB_OUTPUT
+          elif [ -f "go.mod" ]; then
+            echo "Running Go tests..."
+            go test -v -cover ./...
+            go vet ./...
+            echo "test_status=success" >> $GITHUB_OUTPUT
+          else
+            echo "No recognized test framework found"
+            echo "test_status=skipped" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Security Scan
+        run: |
+          # Run security scanning based on language
+          if [ -f "package.json" ]; then
+            npx audit-ci --moderate || true
+          elif [ -f "requirements.txt" ]; then
+            pip install safety
+            safety check || true
+          fi
+
+  qa-review:
+    needs: automated-tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Claude CLI
+        run: |
+          npm install -g claude-cli
+
+      - name: Configure Claude
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          claude configure --api-key "$ANTHROPIC_API_KEY" --model opus
+
+      - name: Get PR Details
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            PR_NUMBER="${{ inputs.pr_number }}"
+          else
+            PR_NUMBER="${{ github.event.pull_request.number }}"
+          fi
+          
+          # Get PR details
+          gh pr view $PR_NUMBER --repo ${{ github.repository }} --json title,body,files,additions,deletions > pr.json
+          
+          # Get diff
+          gh pr diff $PR_NUMBER --repo ${{ github.repository }} > pr.diff
+          
+          echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
+
+      - name: Run QA Persona Review
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
+        run: |
+          # Download and run QA script from command-center
+          curl -H "Authorization: token $GH_PAT" \
+            -H "Accept: application/vnd.github.v3.raw" \
+            -o qa.sh \
+            https://api.github.com/repos/code-orchestration/command-center/contents/.github/scripts/qa.sh
+          
+          chmod +x qa.sh
+          ./qa.sh
+
+      - name: Post Review Results
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GH_PAT }}
+          script: |
+            const fs = require('fs');
+            const pr_number = ${{ steps.pr.outputs.pr_number }};
+            
+            // Read review results
+            let reviewResult = 'COMMENT'; // Default to comment
+            let reviewBody = '## 🔍 QA Review Results\n\n';
+            
+            try {
+              const review = JSON.parse(fs.readFileSync('review-results.json', 'utf8'));
+              
+              // Determine approval status
+              if (review.approval_status === 'approved') {
+                reviewResult = 'APPROVE';
+                reviewBody += '✅ **Code Review: APPROVED**\n\n';
+              } else if (review.approval_status === 'changes_requested') {
+                reviewResult = 'REQUEST_CHANGES';
+                reviewBody += '⚠️ **Code Review: CHANGES REQUESTED**\n\n';
+              } else {
+                reviewBody += '💬 **Code Review: COMMENT**\n\n';
+              }
+              
+              // Add review details
+              if (review.strengths && review.strengths.length > 0) {
+                reviewBody += '### ✨ Strengths\n';
+                review.strengths.forEach(s => {
+                  reviewBody += `- ${s}\n`;
+                });
+                reviewBody += '\n';
+              }
+              
+              if (review.issues && review.issues.length > 0) {
+                reviewBody += '### 🔧 Issues Found\n';
+                review.issues.forEach(issue => {
+                  reviewBody += `- **${issue.severity}**: ${issue.description}\n`;
+                  if (issue.suggestion) {
+                    reviewBody += `  💡 Suggestion: ${issue.suggestion}\n`;
+                  }
+                });
+                reviewBody += '\n';
+              }
+              
+              if (review.suggestions && review.suggestions.length > 0) {
+                reviewBody += '### 💡 Suggestions\n';
+                review.suggestions.forEach(s => {
+                  reviewBody += `- ${s}\n`;
+                });
+                reviewBody += '\n';
+              }
+              
+              // Add metrics
+              reviewBody += '### 📊 Metrics\n';
+              reviewBody += `- **Test Coverage**: ${review.metrics.test_coverage || 'N/A'}\n`;
+              reviewBody += `- **Code Quality**: ${review.metrics.code_quality || 'N/A'}\n`;
+              reviewBody += `- **Performance Impact**: ${review.metrics.performance_impact || 'N/A'}\n`;
+              
+            } catch (error) {
+              console.error('Error reading review results:', error);
+              reviewBody += 'Error processing review results. Please check the logs.\n';
+            }
+            
+            reviewBody += '\n---\n*Automated review by SuperClaude QA Persona*';
+            
+            // Create review
+            await github.rest.pulls.createReview({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pr_number,
+              event: reviewResult,
+              body: reviewBody
+            });
+
+      - name: Auto-merge if Approved
+        if: steps.qa.outputs.approval_status == 'approved'
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          gh pr merge ${{ steps.pr.outputs.pr_number }} \
+            --repo ${{ github.repository }} \
+            --auto \
+            --merge \
+            --delete-branch

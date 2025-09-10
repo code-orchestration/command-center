@@ -1,0 +1,139 @@
+name: Developer Pipeline
+
+on:
+  issues:
+    types: [opened, assigned]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: 'Issue number to work on'
+        required: true
+        type: number
+
+jobs:
+  develop:
+    if: |
+      (github.event_name == 'issues' && !contains(github.event.issue.labels.*.name, 'service-type')) ||
+      github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Claude CLI
+        run: |
+          npm install -g claude-cli
+
+      - name: Configure Claude
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          claude configure --api-key "$ANTHROPIC_API_KEY" --model opus
+
+      - name: Get Issue Details
+        id: issue
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            ISSUE_NUMBER="${{ inputs.issue_number }}"
+          else
+            ISSUE_NUMBER="${{ github.event.issue.number }}"
+          fi
+          
+          # Get issue details
+          gh issue view $ISSUE_NUMBER --repo ${{ github.repository }} --json title,body,labels > issue.json
+          
+          echo "issue_number=$ISSUE_NUMBER" >> $GITHUB_OUTPUT
+          echo "issue_title=$(jq -r '.title' issue.json)" >> $GITHUB_OUTPUT
+
+      - name: Create Feature Branch
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          BRANCH_NAME="feature/issue-${{ steps.issue.outputs.issue_number }}"
+          git checkout -b "$BRANCH_NAME"
+          git push -u origin "$BRANCH_NAME"
+
+      - name: Run Developer Persona
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+          ISSUE_NUMBER: ${{ steps.issue.outputs.issue_number }}
+        run: |
+          # Download and run developer script from command-center
+          curl -H "Authorization: token $GH_PAT" \
+            -H "Accept: application/vnd.github.v3.raw" \
+            -o developer.sh \
+            https://api.github.com/repos/code-orchestration/command-center/contents/.github/scripts/developer.sh
+          
+          chmod +x developer.sh
+          ./developer.sh
+
+      - name: Commit Changes
+        run: |
+          git config --global user.name "SuperClaude Developer"
+          git config --global user.email "superclaude@code-orchestration.dev"
+          
+          git add -A
+          git commit -m "feat: Implement issue #${{ steps.issue.outputs.issue_number }}
+          
+          ${{ steps.issue.outputs.issue_title }}
+          
+          Automated implementation by SuperClaude Developer Persona"
+
+      - name: Push Changes
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          git push
+
+      - name: Create Pull Request
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          gh pr create \
+            --title "feat: ${{ steps.issue.outputs.issue_title }}" \
+            --body "## Description
+          
+          Implements #${{ steps.issue.outputs.issue_number }}
+          
+          ## Changes
+          - Implementation based on issue requirements
+          - Added tests
+          - Updated documentation
+          
+          ## Testing
+          - [ ] Unit tests pass
+          - [ ] Integration tests pass
+          - [ ] Manual testing completed
+          
+          ## Checklist
+          - [x] Code follows project style guidelines
+          - [x] Tests have been added
+          - [x] Documentation has been updated
+          - [ ] PR has been reviewed
+          
+          ---
+          *Automated by SuperClaude Developer Persona*" \
+            --base main \
+            --head "feature/issue-${{ steps.issue.outputs.issue_number }}" \
+            --assignee "@me" \
+            --label "automated,needs-review"
+
+      - name: Comment on Issue
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GH_PAT }}
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: ${{ steps.issue.outputs.issue_number }},
+              body: '🚀 **Development Complete**\n\nA pull request has been created for this issue.\n\nThe QA persona will now review the implementation.'
+            });
